@@ -3,7 +3,7 @@
 ## 文件组织
 
 ```
-new-parse/
+bili-cache-viewer/
 ├── bilibili_cache_manager.py    # 主程序（GUI）
 ├── bilibili_cache_parser.py     # 缓存解析模块
 ├── ffmpeg_manager.py             # FFmpeg管理模块
@@ -13,13 +13,22 @@ new-parse/
 ├── USAGE.md                      # 使用指南
 ├── PROJECT_STRUCTURE.md          # 本文件
 ├── requirements.txt              # 依赖说明
-├── c_549206412/                  # 示例缓存目录
-│   ├── entry.json
-│   ├── danmaku.xml
-│   └── 32/
-│       ├── audio.m4s
-│       ├── video.m4s
-│       └── index.json
+├── example/                      # 示例缓存目录
+│   ├── 115355523482713/         # M4S格式示例（新版）
+│   │   └── c_32995413744/
+│   │       ├── entry.json
+│   │       ├── cover.jpg
+│   │       └── 16/
+│   │           ├── audio.m4s
+│   │           └── video.m4s
+│   └── 5088732/                 # BLV格式示例（旧版）
+│       └── 1/
+│           ├── entry.json
+│           ├── danmaku.xml
+│           └── lua.mp4.bili2api.16/
+│               ├── index.json
+│               ├── 0.blv
+│               └── 0.blv.4m.sum
 └── ffmpeg/                       # FFmpeg程序（自动下载）
     └── bin/
         └── ffmpeg.exe
@@ -69,18 +78,28 @@ _download_ffmpeg()       # 下载FFmpeg
   - quality_code, quality_desc
   - audio_path, video_path
   - total_size
+  - format_type（'M4S' 或 'BLV'）
+  - blv_files（BLV格式的分段文件列表）
 
 - `BilibiliCacheParser`：解析器类
-  - `parse_cache_dir()`：解析单个缓存目录
-  - `scan_directory()`：递归扫描目录
+  - `parse_cache_dir()`：解析单个缓存目录（支持M4S和BLV格式）
+  - `scan_directory()`：递归扫描目录（基于entry.json检测）
+  - `_parse_m4s_format()`：解析M4S格式缓存
+  - `_parse_blv_format()`：解析BLV格式缓存
   - `_get_quality_desc()`：获取画质描述
 
 **数据流**：
 ```
+M4S格式（新版）：
 缓存目录 → entry.json → BilibiliVideo (title, owner_name, bvid, cover_url等)
          → cover.jpg → cover_path
-         → 32/audio.m4s → VideoQuality
-         → 32/video.m4s
+         → 16/audio.m4s → VideoQuality (format_type='M4S')
+         → 16/video.m4s
+
+BLV格式（旧版）：
+缓存目录 → entry.json → BilibiliVideo
+         → lua.mp4.bili2api.16/index.json → VideoQuality (format_type='BLV')
+         → lua.mp4.bili2api.16/0.blv → blv_files
 ```
 
 ### 3. ffmpeg_manager.py（FFmpeg管理）
@@ -137,11 +156,13 @@ class BilibiliVideo:
 ```python
 @dataclass
 class VideoQuality:
-    quality_code: str      # "32", "64", "80"
-    quality_desc: str      # "480P", "720P", "1080P"
-    audio_path: str        # 音频文件绝对路径
-    video_path: str        # 视频文件绝对路径
+    quality_code: str      # "32", "64", "80", "16"
+    quality_desc: str      # "480P", "720P", "1080P", "流畅 360P"
+    audio_path: str        # 音频文件路径（M4S）或空（BLV）
+    video_path: str        # 视频文件路径（M4S/BLV）
     total_size: int        # 总大小（字节）
+    format_type: str       # 'M4S' 或 'BLV'
+    blv_files: List[str]   # BLV分段文件列表
 ```
 
 ## 工作流程
@@ -165,13 +186,20 @@ class VideoQuality:
 ```
 用户选择目录
   ↓
-递归查找c_*目录
+递归查找所有entry.json文件
   ↓
 解析每个entry.json
   ↓
-扫描画质子目录
-  ↓
-检查audio.m4s和video.m4s
+检测缓存格式（M4S或BLV）
+  ├─ M4S格式 ↓
+  │   扫描画质子目录
+  │   检查audio.m4s和video.m4s
+  │   创建VideoQuality (format_type='M4S')
+  └─ BLV格式 ↓
+      递归查找index.json
+      读取segment信息
+      查找.blv文件
+      创建VideoQuality (format_type='BLV')
   ↓
 创建BilibiliVideo对象
   ↓

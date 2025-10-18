@@ -14,9 +14,16 @@ class VideoQuality:
     """视频画质信息"""
     quality_code: str  # 画质代号，如 "32"
     quality_desc: str  # 画质描述，如 "480P"
-    audio_path: str    # audio.m4s 文件路径
-    video_path: str    # video.m4s 文件路径
+    audio_path: str    # audio.m4s 文件路径（M4S格式）或空字符串（BLV格式）
+    video_path: str    # video.m4s 文件路径（M4S格式）或 .blv 文件路径（BLV格式）
     total_size: int    # 总大小（字节）
+    format_type: str = 'M4S'  # 格式类型：'M4S' 或 'BLV'
+    blv_files: List[str] = None  # BLV格式的所有分段文件列表
+
+    def __post_init__(self):
+        """初始化后处理"""
+        if self.blv_files is None:
+            self.blv_files = []
 
     def get_size_str(self) -> str:
         """获取可读的文件大小"""
@@ -59,10 +66,10 @@ class BilibiliCacheParser:
     @staticmethod
     def parse_cache_dir(cache_dir: Path) -> Optional[BilibiliVideo]:
         """
-        解析单个缓存目录
+        解析单个缓存目录（支持M4S和BLV两种格式）
 
         Args:
-            cache_dir: 缓存目录路径（如 c_549206412）
+            cache_dir: 缓存目录路径（如 c_549206412 或数字目录）
 
         Returns:
             BilibiliVideo对象，如果解析失败则返回None
@@ -79,10 +86,12 @@ class BilibiliCacheParser:
                 entry_data = json.load(f)
 
             # 提取基本信息
-            cid = cache_dir.name.replace('c_', '')
+            # 兼容旧版和新版entry.json
+            cid = str(entry_data.get('page_data', {}).get('cid', '')) or cache_dir.name.replace('c_', '')
             title = entry_data.get('title', '未知标题')
             owner_name = entry_data.get('owner_name', '未知UP主')
             bvid = entry_data.get('bvid', '')
+            avid = entry_data.get('avid', 0)
 
             # 提取封面信息
             cover_url = entry_data.get('cover', '')
@@ -94,45 +103,25 @@ class BilibiliCacheParser:
             page_index = page_data.get('page', 1)
             page_title = page_data.get('part', '')
 
-            # 扫描所有画质目录
+            # 检测缓存格式并解析画质信息
             qualities = []
-            for quality_dir in cache_dir.iterdir():
-                if not quality_dir.is_dir():
-                    continue
 
-                quality_code = quality_dir.name
-                audio_file = quality_dir / "audio.m4s"
-                video_file = quality_dir / "video.m4s"
+            # 尝试解析M4S格式（新版缓存）
+            m4s_qualities = BilibiliCacheParser._parse_m4s_format(cache_dir, entry_data)
+            if m4s_qualities:
+                qualities.extend(m4s_qualities)
 
-                # 检查音视频文件是否存在
-                if not (audio_file.exists() and video_file.exists()):
-                    continue
-
-                # 获取文件大小
-                audio_size = audio_file.stat().st_size
-                video_size = video_file.stat().st_size
-                total_size = audio_size + video_size
-
-                # 获取画质描述
-                quality_desc = BilibiliCacheParser._get_quality_desc(
-                    quality_code,
-                    entry_data.get('quality_pithy_description', '')
-                )
-
-                qualities.append(VideoQuality(
-                    quality_code=quality_code,
-                    quality_desc=quality_desc,
-                    audio_path=str(audio_file),
-                    video_path=str(video_file),
-                    total_size=total_size
-                ))
+            # 尝试解析BLV格式（旧版缓存）
+            blv_qualities = BilibiliCacheParser._parse_blv_format(cache_dir, entry_data)
+            if blv_qualities:
+                qualities.extend(blv_qualities)
 
             # 如果没有找到有效的画质，返回None
             if not qualities:
                 return None
 
             # 按画质代号降序排序（数字越大画质越高）
-            qualities.sort(key=lambda x: int(x.quality_code), reverse=True)
+            qualities.sort(key=lambda x: int(x.quality_code) if x.quality_code.isdigit() else 0, reverse=True)
 
             return BilibiliVideo(
                 cid=cid,
@@ -150,6 +139,99 @@ class BilibiliCacheParser:
         except Exception as e:
             print(f"解析缓存目录 {cache_dir} 失败: {e}")
             return None
+
+    @staticmethod
+    def _parse_m4s_format(cache_dir: Path, entry_data: dict) -> List[VideoQuality]:
+        """解析M4S格式的缓存（新版）"""
+        qualities = []
+
+        for quality_dir in cache_dir.iterdir():
+            if not quality_dir.is_dir():
+                continue
+
+            quality_code = quality_dir.name
+            audio_file = quality_dir / "audio.m4s"
+            video_file = quality_dir / "video.m4s"
+
+            # 检查音视频文件是否存在
+            if not (audio_file.exists() and video_file.exists()):
+                continue
+
+            # 获取文件大小
+            audio_size = audio_file.stat().st_size
+            video_size = video_file.stat().st_size
+            total_size = audio_size + video_size
+
+            # 获取画质描述
+            quality_desc = BilibiliCacheParser._get_quality_desc(
+                quality_code,
+                entry_data.get('quality_pithy_description', '')
+            )
+
+            qualities.append(VideoQuality(
+                quality_code=quality_code,
+                quality_desc=quality_desc,
+                audio_path=str(audio_file),
+                video_path=str(video_file),
+                total_size=total_size,
+                format_type='M4S'
+            ))
+
+        return qualities
+
+    @staticmethod
+    def _parse_blv_format(cache_dir: Path, entry_data: dict) -> List[VideoQuality]:
+        """解析BLV格式的缓存（旧版）"""
+        qualities = []
+
+        # 递归查找所有包含index.json的目录
+        for index_json_path in cache_dir.rglob('index.json'):
+            quality_dir = index_json_path.parent
+
+            try:
+                # 读取index.json
+                with open(index_json_path, 'r', encoding='utf-8') as f:
+                    index_data = json.load(f)
+
+                # 从目录名中提取画质代号（如 lua.mp4.bili2api.16 -> 16）
+                dir_name = quality_dir.name
+                type_tag = entry_data.get('type_tag', '')
+
+                # 提取画质代号
+                quality_code = dir_name.split('.')[-1] if '.' in dir_name else '16'
+
+                # 获取画质描述
+                quality_desc = index_data.get('description', '') or BilibiliCacheParser._get_quality_desc(quality_code)
+
+                # 查找所有.blv文件
+                blv_files = sorted(quality_dir.glob('*.blv'))
+                if not blv_files:
+                    continue
+
+                # 计算总大小
+                total_size = sum(f.stat().st_size for f in blv_files)
+
+                # 获取segment信息
+                segment_list = index_data.get('segment_list', [])
+                if segment_list and len(segment_list) > 0:
+                    segment = segment_list[0]
+                    total_size = segment.get('bytes', total_size)
+
+                qualities.append(VideoQuality(
+                    quality_code=quality_code,
+                    quality_desc=quality_desc,
+                    audio_path='',  # BLV格式音视频合并在一起
+                    video_path=str(blv_files[0]) if len(blv_files) == 1 else str(quality_dir),
+                    total_size=total_size,
+                    format_type='BLV',
+                    blv_files=[str(f) for f in blv_files]
+                ))
+
+            except Exception as e:
+                print(f"解析BLV格式失败 {quality_dir}: {e}")
+                continue
+
+        return qualities
 
     @staticmethod
     def _get_quality_desc(quality_code: str, hint: str = '') -> str:
@@ -178,7 +260,7 @@ class BilibiliCacheParser:
     @staticmethod
     def scan_directory(root_dir: Path) -> List[BilibiliVideo]:
         """
-        递归扫描目录，查找所有B站缓存视频
+        递归扫描目录，查找所有B站缓存视频（支持M4S和BLV格式）
 
         Args:
             root_dir: 根目录路径
@@ -187,13 +269,22 @@ class BilibiliCacheParser:
             BilibiliVideo对象列表
         """
         videos = []
+        processed_dirs = set()  # 避免重复处理
 
-        # 递归查找所有 c_ 开头的目录
-        for path in root_dir.rglob('c_*'):
-            if path.is_dir():
-                video = BilibiliCacheParser.parse_cache_dir(path)
-                if video:
-                    videos.append(video)
+        # 递归查找所有包含entry.json的目录
+        for entry_json_path in root_dir.rglob('entry.json'):
+            cache_dir = entry_json_path.parent
+
+            # 避免重复处理同一目录
+            if cache_dir in processed_dirs:
+                continue
+
+            processed_dirs.add(cache_dir)
+
+            # 解析缓存目录
+            video = BilibiliCacheParser.parse_cache_dir(cache_dir)
+            if video:
+                videos.append(video)
 
         # 按标题和分P排序
         videos.sort(key=lambda x: (x.title, x.page_index))

@@ -39,6 +39,7 @@ new-parse/
   - 播放/导出控制
 
 - `VideoCard`：视频卡片组件
+  - 封面图片显示（支持本地和在线加载）
   - 视频信息展示
   - 画质选择
   - 操作按钮
@@ -61,6 +62,7 @@ _download_ffmpeg()       # 下载FFmpeg
 - `BilibiliVideo`：视频数据类
   - cid, title, owner_name, bvid
   - page_index, page_title
+  - cover_url, cover_path（封面信息）
   - qualities（画质列表）
 
 - `VideoQuality`：画质数据类
@@ -75,7 +77,8 @@ _download_ffmpeg()       # 下载FFmpeg
 
 **数据流**：
 ```
-缓存目录 → entry.json → BilibiliVideo
+缓存目录 → entry.json → BilibiliVideo (title, owner_name, bvid, cover_url等)
+         → cover.jpg → cover_path
          → 32/audio.m4s → VideoQuality
          → 32/video.m4s
 ```
@@ -125,6 +128,8 @@ class BilibiliVideo:
     page_title: str                   # 分P标题
     cache_dir: str                    # 缓存目录路径
     qualities: List[VideoQuality]     # 画质列表
+    cover_url: str                    # 封面图URL（从entry.json获取）
+    cover_path: str                   # 本地封面图路径（cover.jpg）
 ```
 
 ### VideoQuality

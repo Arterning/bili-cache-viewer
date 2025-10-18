@@ -11,7 +11,13 @@
 # - zipfile (压缩文件处理)
 
 # 外部依赖（需手动安装）：
+# - Pillow: 用于图片处理和显示
+#   pip install Pillow
+#
 # - FFmpeg: 用于音视频合并
 #   Windows: 程序自动下载
 #   macOS: brew install ffmpeg
 #   Linux: sudo apt install ffmpeg
+
+# Python包依赖
+Pillow>=10.0.0

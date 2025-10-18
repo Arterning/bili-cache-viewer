@@ -11,6 +11,16 @@ from pathlib import Path
 from typing import List, Optional
 import subprocess
 import platform
+from io import BytesIO
+import urllib.request
+
+try:
+    from PIL import Image, ImageTk
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("警告: 未安装Pillow库，封面图片将不会显示")
+    print("请运行: pip install Pillow")
 
 from bilibili_cache_parser import BilibiliCacheParser, BilibiliVideo, VideoQuality
 from ffmpeg_manager import FFmpegManager
@@ -25,6 +35,7 @@ class VideoCard(ttk.Frame):
         self.on_play = on_play
         self.on_export = on_export
         self.selected_quality: Optional[VideoQuality] = None
+        self.cover_image = None  # 保持对图片的引用，防止被垃圾回收
 
         self._create_ui()
 
@@ -34,9 +45,19 @@ class VideoCard(ttk.Frame):
         main_frame = ttk.Frame(self, padding="10")
         main_frame.pack(fill="both", expand=True)
 
+        # 左侧：封面图片
+        cover_frame = ttk.Frame(main_frame)
+        cover_frame.grid(row=0, column=0, rowspan=3, sticky="nw", padx=(0, 10))
+
+        self._load_cover_image(cover_frame)
+
+        # 右侧：视频信息
+        info_frame = ttk.Frame(main_frame)
+        info_frame.grid(row=0, column=1, sticky="ew")
+
         # 标题行
         title_label = ttk.Label(
-            main_frame,
+            info_frame,
             text=self.video.get_display_title(),
             font=("Arial", 11, "bold"),
             wraplength=600
@@ -45,11 +66,11 @@ class VideoCard(ttk.Frame):
 
         # 信息行
         info_text = f"UP主: {self.video.owner_name} | BV号: {self.video.bvid}"
-        info_label = ttk.Label(main_frame, text=info_text, foreground="gray")
+        info_label = ttk.Label(info_frame, text=info_text, foreground="gray")
         info_label.grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 5))
 
         # 画质选择
-        quality_label = ttk.Label(main_frame, text="画质:")
+        quality_label = ttk.Label(info_frame, text="画质:")
         quality_label.grid(row=2, column=0, sticky="w", padx=(0, 5))
 
         # 画质下拉框
@@ -59,7 +80,7 @@ class VideoCard(ttk.Frame):
         ]
         self.quality_var = tk.StringVar(value=quality_options[0])
         quality_combo = ttk.Combobox(
-            main_frame,
+            info_frame,
             textvariable=self.quality_var,
             values=quality_options,
             state="readonly",
@@ -72,7 +93,7 @@ class VideoCard(ttk.Frame):
         self.selected_quality = self.video.qualities[0]
 
         # 按钮区域
-        button_frame = ttk.Frame(main_frame)
+        button_frame = ttk.Frame(info_frame)
         button_frame.grid(row=2, column=2, sticky="e")
 
         play_btn = ttk.Button(
@@ -93,6 +114,144 @@ class VideoCard(ttk.Frame):
 
         # 配置列权重，使内容合理分布
         main_frame.columnconfigure(1, weight=1)
+        info_frame.columnconfigure(1, weight=1)
+
+    def _load_cover_image(self, parent):
+        """加载封面图片"""
+        if not PIL_AVAILABLE:
+            # 如果PIL不可用，显示文本占位符
+            placeholder = ttk.Label(
+                parent,
+                text="[封面]",
+                relief="solid",
+                borderwidth=1,
+                width=12,
+                anchor="center"
+            )
+            placeholder.pack()
+            return
+
+        try:
+            cover_path = self.video.get_cover()
+            if not cover_path:
+                self._show_placeholder(parent)
+                return
+
+            # 尝试加载本地图片
+            if self.video.cover_path and Path(self.video.cover_path).exists():
+                image = Image.open(self.video.cover_path)
+            # 如果没有本地图片，尝试从URL下载
+            elif self.video.cover_url:
+                # 在线程中异步加载网络图片
+                self._load_cover_from_url(parent, self.video.cover_url)
+                return
+            else:
+                self._show_placeholder(parent)
+                return
+
+            # 调整图片大小 (保持宽高比)
+            # 封面尺寸：宽度120px，高度自适应
+            target_width = 120
+            w_percent = target_width / float(image.size[0])
+            target_height = int(float(image.size[1]) * w_percent)
+
+            # 限制最大高度
+            max_height = 90
+            if target_height > max_height:
+                target_height = max_height
+                h_percent = max_height / float(image.size[1])
+                target_width = int(float(image.size[0]) * h_percent)
+
+            image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+            # 转换为PhotoImage
+            self.cover_image = ImageTk.PhotoImage(image)
+
+            # 显示图片
+            cover_label = ttk.Label(parent, image=self.cover_image)
+            cover_label.pack()
+
+        except Exception as e:
+            print(f"加载封面失败: {e}")
+            self._show_placeholder(parent)
+
+    def _load_cover_from_url(self, parent, url):
+        """从URL异步加载封面图片"""
+        # 先显示占位符
+        placeholder = ttk.Label(
+            parent,
+            text="加载中...",
+            relief="solid",
+            borderwidth=1,
+            width=12,
+            anchor="center"
+        )
+        placeholder.pack()
+
+        def download_thread():
+            try:
+                # 下载图片
+                with urllib.request.urlopen(url, timeout=5) as response:
+                    image_data = response.read()
+
+                # 在主线程中更新UI
+                self.after(0, lambda: self._display_downloaded_cover(
+                    parent, placeholder, image_data
+                ))
+            except Exception as e:
+                print(f"从URL加载封面失败: {e}")
+                self.after(0, lambda: self._show_placeholder(parent, placeholder))
+
+        thread = threading.Thread(target=download_thread, daemon=True)
+        thread.start()
+
+    def _display_downloaded_cover(self, parent, old_widget, image_data):
+        """显示下载的封面图片"""
+        try:
+            # 移除占位符
+            old_widget.destroy()
+
+            # 从字节流加载图片
+            image = Image.open(BytesIO(image_data))
+
+            # 调整图片大小
+            target_width = 120
+            w_percent = target_width / float(image.size[0])
+            target_height = int(float(image.size[1]) * w_percent)
+
+            max_height = 90
+            if target_height > max_height:
+                target_height = max_height
+                h_percent = max_height / float(image.size[1])
+                target_width = int(float(image.size[0]) * h_percent)
+
+            image = image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+            # 转换为PhotoImage
+            self.cover_image = ImageTk.PhotoImage(image)
+
+            # 显示图片
+            cover_label = ttk.Label(parent, image=self.cover_image)
+            cover_label.pack()
+
+        except Exception as e:
+            print(f"显示封面失败: {e}")
+            self._show_placeholder(parent, old_widget)
+
+    def _show_placeholder(self, parent, old_widget=None):
+        """显示占位符"""
+        if old_widget:
+            old_widget.destroy()
+
+        placeholder = ttk.Label(
+            parent,
+            text="无封面",
+            relief="solid",
+            borderwidth=1,
+            width=12,
+            anchor="center"
+        )
+        placeholder.pack()
 
     def _on_quality_changed(self, event):
         """画质改变事件"""

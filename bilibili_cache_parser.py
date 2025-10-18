@@ -39,12 +39,18 @@ class BilibiliVideo:
     page_title: str                   # 分P标题
     cache_dir: str                    # 缓存目录路径
     qualities: List[VideoQuality]     # 可用画质列表
+    cover_url: str = ''               # 封面图URL
+    cover_path: str = ''              # 本地封面图路径
 
     def get_display_title(self) -> str:
         """获取显示用的标题"""
         if self.page_title and self.page_title != self.title:
             return f"{self.title} - P{self.page_index}: {self.page_title}"
         return self.title
+
+    def get_cover(self) -> str:
+        """获取封面图路径或URL，优先返回本地路径"""
+        return self.cover_path if self.cover_path else self.cover_url
 
 
 class BilibiliCacheParser:
@@ -77,6 +83,11 @@ class BilibiliCacheParser:
             title = entry_data.get('title', '未知标题')
             owner_name = entry_data.get('owner_name', '未知UP主')
             bvid = entry_data.get('bvid', '')
+
+            # 提取封面信息
+            cover_url = entry_data.get('cover', '')
+            cover_file = cache_dir / 'cover.jpg'
+            cover_path = str(cover_file) if cover_file.exists() else ''
 
             # 提取分P信息
             page_data = entry_data.get('page_data', {})
@@ -131,7 +142,9 @@ class BilibiliCacheParser:
                 page_index=page_index,
                 page_title=page_title,
                 cache_dir=str(cache_dir),
-                qualities=qualities
+                qualities=qualities,
+                cover_url=cover_url,
+                cover_path=cover_path
             )
 
         except Exception as e:
@@ -200,6 +213,8 @@ if __name__ == "__main__":
             print(f"UP主: {video.owner_name}")
             print(f"BV号: {video.bvid}")
             print(f"分P: 第{video.page_index}P - {video.page_title}")
+            print(f"封面URL: {video.cover_url}")
+            print(f"本地封面: {video.cover_path if video.cover_path else '无'}")
             print(f"可用画质:")
             for q in video.qualities:
                 print(f"  - {q.quality_desc} ({q.get_size_str()})")

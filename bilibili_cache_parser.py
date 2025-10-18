@@ -48,6 +48,7 @@ class BilibiliVideo:
     qualities: List[VideoQuality]     # 可用画质列表
     cover_url: str = ''               # 封面图URL
     cover_path: str = ''              # 本地封面图路径
+    time_create: int = 0              # 创建时间戳（毫秒）
 
     def get_display_title(self) -> str:
         """获取显示用的标题"""
@@ -103,6 +104,9 @@ class BilibiliCacheParser:
             page_index = page_data.get('page', 1)
             page_title = page_data.get('part', '')
 
+            # 提取创建时间
+            time_create = entry_data.get('time_create_stamp', 0)
+
             # 检测缓存格式并解析画质信息
             qualities = []
 
@@ -133,7 +137,8 @@ class BilibiliCacheParser:
                 cache_dir=str(cache_dir),
                 qualities=qualities,
                 cover_url=cover_url,
-                cover_path=cover_path
+                cover_path=cover_path,
+                time_create=time_create
             )
 
         except Exception as e:
@@ -286,8 +291,8 @@ class BilibiliCacheParser:
             if video:
                 videos.append(video)
 
-        # 按标题和分P排序
-        videos.sort(key=lambda x: (x.title, x.page_index))
+        # 按创建时间倒序排序（最新的在前面）
+        videos.sort(key=lambda x: x.time_create, reverse=True)
 
         return videos
 

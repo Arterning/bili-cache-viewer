@@ -43,7 +43,8 @@ bili-cache-viewer/
 **主要类**：
 - `BilibiliCacheManager`：主窗口类
   - 目录选择
-  - 视频列表展示
+  - 视频列表展示（分页显示，每页10条）
+  - 分页导航（首页/上一页/下一页/末页/跳转）
   - FFmpeg检测和下载
   - 播放/导出控制
 
@@ -56,7 +57,14 @@ bili-cache-viewer/
 **关键方法**：
 ```python
 _select_directory()      # 选择目录
-_scan_videos()           # 扫描视频
+_scan_videos()           # 扫描视频（按创建时间倒序）
+_display_current_page()  # 显示当前页
+_update_pagination_ui()  # 更新分页UI
+_first_page()            # 跳转到首页
+_prev_page()             # 上一页
+_next_page()             # 下一页
+_last_page()             # 跳转到末页
+_goto_page()             # 跳转到指定页
 _play_video()            # 播放视频
 _export_video()          # 导出视频
 _check_ffmpeg()          # 检查FFmpeg
@@ -149,6 +157,7 @@ class BilibiliVideo:
     qualities: List[VideoQuality]     # 画质列表
     cover_url: str                    # 封面图URL（从entry.json获取）
     cover_path: str                   # 本地封面图路径（cover.jpg）
+    time_create: int                  # 创建时间戳（毫秒）
 ```
 
 ### VideoQuality

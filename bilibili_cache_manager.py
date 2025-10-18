@@ -286,6 +286,11 @@ class BilibiliCacheManager(tk.Tk):
         self.videos: List[BilibiliVideo] = []
         self.video_cards: List[VideoCard] = []
 
+        # 分页相关
+        self.page_size = 10  # 每页显示10条
+        self.current_page = 1  # 当前页码（从1开始）
+        self.total_pages = 0  # 总页数
+
         self._create_ui()
         self._check_ffmpeg()
 
@@ -318,6 +323,59 @@ class BilibiliCacheManager(tk.Tk):
         # 分隔线
         separator = ttk.Separator(self, orient="horizontal")
         separator.pack(fill="x", padx=10, pady=5)
+
+        # 分页控制栏
+        pagination_top = ttk.Frame(self, padding="5")
+        pagination_top.pack(fill="x", padx=10)
+
+        self.page_info_label = ttk.Label(pagination_top, text="")
+        self.page_info_label.pack(side="left")
+
+        pagination_buttons = ttk.Frame(pagination_top)
+        pagination_buttons.pack(side="right")
+
+        self.first_page_btn = ttk.Button(
+            pagination_buttons,
+            text="首页",
+            command=self._first_page,
+            width=6
+        )
+        self.first_page_btn.pack(side="left", padx=2)
+
+        self.prev_page_btn = ttk.Button(
+            pagination_buttons,
+            text="上一页",
+            command=self._prev_page,
+            width=8
+        )
+        self.prev_page_btn.pack(side="left", padx=2)
+
+        self.page_entry = ttk.Entry(pagination_buttons, width=5)
+        self.page_entry.pack(side="left", padx=2)
+        self.page_entry.bind("<Return>", lambda e: self._goto_page())
+
+        ttk.Button(
+            pagination_buttons,
+            text="跳转",
+            command=self._goto_page,
+            width=6
+        ).pack(side="left", padx=2)
+
+        self.next_page_btn = ttk.Button(
+            pagination_buttons,
+            text="下一页",
+            command=self._next_page,
+            width=8
+        )
+        self.next_page_btn.pack(side="left", padx=2)
+
+        self.last_page_btn = ttk.Button(
+            pagination_buttons,
+            text="末页",
+            command=self._last_page,
+            width=6
+        )
+        self.last_page_btn.pack(side="left", padx=2)
 
         # 视频列表容器（带滚动条）
         list_container = ttk.Frame(self)
@@ -444,27 +502,25 @@ class BilibiliCacheManager(tk.Tk):
         self.status_label["text"] = "扫描中..."
         self.update()
 
-        # 清空现有列表
-        for card in self.video_cards:
-            card.destroy()
-        self.video_cards.clear()
-
         # 扫描视频
         self.videos = BilibiliCacheParser.scan_directory(self.current_directory)
+
+        # 计算总页数
+        self.total_pages = (len(self.videos) + self.page_size - 1) // self.page_size if self.videos else 0
+        self.current_page = 1
 
         # 更新状态
         self.status_label["text"] = f"找到 {len(self.videos)} 个缓存视频"
 
-        # 创建视频卡片
-        for video in self.videos:
-            card = VideoCard(
-                self.video_list_frame,
-                video,
-                on_play=self._play_video,
-                on_export=self._export_video
-            )
-            card.pack(fill="x", pady=5, padx=5)
-            self.video_cards.append(card)
+        # 显示第一页
+        self._display_current_page()
+
+    def _display_current_page(self):
+        """显示当前页的视频"""
+        # 清空现有列表
+        for card in self.video_cards:
+            card.destroy()
+        self.video_cards.clear()
 
         # 如果没有找到视频
         if not self.videos:
@@ -475,6 +531,92 @@ class BilibiliCacheManager(tk.Tk):
                 font=("Arial", 12)
             )
             no_video_label.pack(pady=50)
+            self._update_pagination_ui()
+            return
+
+        # 计算当前页的视频范围
+        start_idx = (self.current_page - 1) * self.page_size
+        end_idx = min(start_idx + self.page_size, len(self.videos))
+
+        # 创建当前页的视频卡片
+        for video in self.videos[start_idx:end_idx]:
+            card = VideoCard(
+                self.video_list_frame,
+                video,
+                on_play=self._play_video,
+                on_export=self._export_video
+            )
+            card.pack(fill="x", pady=5, padx=5)
+            self.video_cards.append(card)
+
+        # 更新分页UI
+        self._update_pagination_ui()
+
+    def _update_pagination_ui(self):
+        """更新分页UI状态"""
+        if self.total_pages == 0:
+            self.page_info_label["text"] = ""
+            self.first_page_btn["state"] = "disabled"
+            self.prev_page_btn["state"] = "disabled"
+            self.next_page_btn["state"] = "disabled"
+            self.last_page_btn["state"] = "disabled"
+            self.page_entry.delete(0, tk.END)
+            return
+
+        # 更新页码信息
+        start_idx = (self.current_page - 1) * self.page_size + 1
+        end_idx = min(self.current_page * self.page_size, len(self.videos))
+        self.page_info_label["text"] = f"第 {self.current_page}/{self.total_pages} 页 (显示 {start_idx}-{end_idx}，共 {len(self.videos)} 个)"
+
+        # 更新按钮状态
+        self.first_page_btn["state"] = "normal" if self.current_page > 1 else "disabled"
+        self.prev_page_btn["state"] = "normal" if self.current_page > 1 else "disabled"
+        self.next_page_btn["state"] = "normal" if self.current_page < self.total_pages else "disabled"
+        self.last_page_btn["state"] = "normal" if self.current_page < self.total_pages else "disabled"
+
+        # 更新页码输入框
+        self.page_entry.delete(0, tk.END)
+        self.page_entry.insert(0, str(self.current_page))
+
+    def _first_page(self):
+        """跳转到首页"""
+        if self.current_page != 1:
+            self.current_page = 1
+            self._display_current_page()
+
+    def _last_page(self):
+        """跳转到末页"""
+        if self.current_page != self.total_pages:
+            self.current_page = self.total_pages
+            self._display_current_page()
+
+    def _prev_page(self):
+        """上一页"""
+        if self.current_page > 1:
+            self.current_page -= 1
+            self._display_current_page()
+
+    def _next_page(self):
+        """下一页"""
+        if self.current_page < self.total_pages:
+            self.current_page += 1
+            self._display_current_page()
+
+    def _goto_page(self):
+        """跳转到指定页"""
+        try:
+            page = int(self.page_entry.get())
+            if 1 <= page <= self.total_pages:
+                self.current_page = page
+                self._display_current_page()
+            else:
+                messagebox.showwarning("提示", f"请输入1-{self.total_pages}之间的页码")
+                self.page_entry.delete(0, tk.END)
+                self.page_entry.insert(0, str(self.current_page))
+        except ValueError:
+            messagebox.showwarning("提示", "请输入有效的页码")
+            self.page_entry.delete(0, tk.END)
+            self.page_entry.insert(0, str(self.current_page))
 
     def _play_video(self, video: BilibiliVideo, quality: VideoQuality):
         """播放视频"""

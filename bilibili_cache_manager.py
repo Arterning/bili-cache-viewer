@@ -510,18 +510,27 @@ class BilibiliCacheManager(tk.Tk):
         status_label = ttk.Label(progress_window, text="处理中...")
         status_label.pack()
 
-        # 在新线程中合并
-        def merge_thread():
-            success = self.ffmpeg_manager.merge_video(
-                quality.audio_path,
-                quality.video_path,
-                str(temp_file)
-            )
+        # 在新线程中处理视频
+        def process_thread():
+            # 根据格式类型选择不同的处理方式
+            if quality.format_type == 'BLV':
+                # BLV格式：直接转换
+                success = self.ffmpeg_manager.convert_blv(
+                    quality.video_path,
+                    str(temp_file)
+                )
+            else:
+                # M4S格式：合并音视频
+                success = self.ffmpeg_manager.merge_video(
+                    quality.audio_path,
+                    quality.video_path,
+                    str(temp_file)
+                )
             progress_window.after(100, lambda: self._on_merge_complete(
                 progress_window, success, str(temp_file)
             ))
 
-        thread = threading.Thread(target=merge_thread, daemon=True)
+        thread = threading.Thread(target=process_thread, daemon=True)
         thread.start()
 
     def _on_merge_complete(self, window, success, file_path):
@@ -583,11 +592,20 @@ class BilibiliCacheManager(tk.Tk):
 
         # 在新线程中导出
         def export_thread():
-            success = self.ffmpeg_manager.merge_video(
-                quality.audio_path,
-                quality.video_path,
-                output_file
-            )
+            # 根据格式类型选择不同的处理方式
+            if quality.format_type == 'BLV':
+                # BLV格式：直接转换
+                success = self.ffmpeg_manager.convert_blv(
+                    quality.video_path,
+                    output_file
+                )
+            else:
+                # M4S格式：合并音视频
+                success = self.ffmpeg_manager.merge_video(
+                    quality.audio_path,
+                    quality.video_path,
+                    output_file
+                )
             progress_window.after(100, lambda: self._on_export_complete(
                 progress_window, success, output_file
             ))

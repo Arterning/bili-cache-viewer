@@ -155,7 +155,7 @@ class FFmpegManager:
     def merge_video(self, audio_path: str, video_path: str, output_path: str,
                    progress_callback=None) -> bool:
         """
-        合并音频和视频文件
+        合并音频和视频文件（M4S格式）
 
         Args:
             audio_path: 音频文件路径
@@ -210,6 +210,66 @@ class FFmpegManager:
             return False
         except Exception as e:
             print(f"合并视频时出错: {e}")
+            if progress_callback:
+                progress_callback(0, 100, f"错误: {e}")
+            return False
+
+    def convert_blv(self, blv_path: str, output_path: str,
+                    progress_callback=None) -> bool:
+        """
+        转换BLV文件为MP4（BLV格式）
+
+        Args:
+            blv_path: BLV文件路径
+            output_path: 输出文件路径
+            progress_callback: 进度回调函数
+
+        Returns:
+            是否转换成功
+        """
+        if not self.is_available():
+            print("FFmpeg不可用")
+            return False
+
+        try:
+            # FFmpeg命令：BLV本质是FLV，直接复制编码转换为MP4
+            cmd = [
+                self.ffmpeg_path,
+                "-i", blv_path,
+                "-c", "copy",  # 复制编码，不重新编码
+                "-y",  # 覆盖输出文件
+                output_path
+            ]
+
+            if progress_callback:
+                progress_callback(0, 100, "开始转换...")
+
+            # 执行FFmpeg
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5分钟超时
+            )
+
+            if result.returncode == 0:
+                if progress_callback:
+                    progress_callback(100, 100, "转换完成！")
+                return True
+            else:
+                error_msg = result.stderr
+                print(f"FFmpeg执行失败: {error_msg}")
+                if progress_callback:
+                    progress_callback(0, 100, f"转换失败: {error_msg[:100]}")
+                return False
+
+        except subprocess.TimeoutExpired:
+            print("FFmpeg执行超时")
+            if progress_callback:
+                progress_callback(0, 100, "转换超时")
+            return False
+        except Exception as e:
+            print(f"转换视频时出错: {e}")
             if progress_callback:
                 progress_callback(0, 100, f"错误: {e}")
             return False

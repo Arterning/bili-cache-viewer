@@ -43,6 +43,7 @@ bili-cache-viewer/
 **主要类**：
 - `BilibiliCacheManager`：主窗口类
   - 目录选择
+  - 视频搜索（支持标题/UP主/BV号搜索）
   - 视频列表展示（分页显示，每页10条）
   - 分页导航（首页/上一页/下一页/末页/跳转）
   - FFmpeg检测和下载
@@ -58,6 +59,8 @@ bili-cache-viewer/
 ```python
 _select_directory()      # 选择目录
 _scan_videos()           # 扫描视频（按创建时间倒序）
+_search_videos()         # 搜索视频
+_clear_search()          # 清除搜索
 _display_current_page()  # 显示当前页
 _update_pagination_ui()  # 更新分页UI
 _first_page()            # 跳转到首页

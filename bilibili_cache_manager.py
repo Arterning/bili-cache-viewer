@@ -291,6 +291,10 @@ class BilibiliCacheManager(tk.Tk):
         self.current_page = 1  # 当前页码（从1开始）
         self.total_pages = 0  # 总页数
 
+        # 搜索相关
+        self.filtered_videos: List[BilibiliVideo] = []  # 搜索过滤后的视频列表
+        self.search_keyword = ""  # 搜索关键词
+
         self._create_ui()
         self._check_ffmpeg()
 
@@ -315,6 +319,31 @@ class BilibiliCacheManager(tk.Tk):
             command=self._refresh_videos
         )
         refresh_btn.pack(side="left", padx=(0, 10))
+
+        # 搜索框
+        ttk.Label(toolbar, text="搜索:").pack(side="left", padx=(10, 5))
+        self.search_var = tk.StringVar()
+        self.search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=20)
+        self.search_entry.pack(side="left", padx=(0, 5))
+        self.search_entry.bind("<Return>", lambda e: self._search_videos())
+
+        # 搜索按钮
+        search_btn = ttk.Button(
+            toolbar,
+            text="搜索",
+            command=self._search_videos,
+            width=6
+        )
+        search_btn.pack(side="left", padx=(0, 5))
+
+        # 清除搜索按钮
+        clear_search_btn = ttk.Button(
+            toolbar,
+            text="清除",
+            command=self._clear_search,
+            width=6
+        )
+        clear_search_btn.pack(side="left", padx=(0, 10))
 
         # 状态标签
         self.status_label = ttk.Label(toolbar, text="请选择缓存目录")
@@ -505,8 +534,13 @@ class BilibiliCacheManager(tk.Tk):
         # 扫描视频
         self.videos = BilibiliCacheParser.scan_directory(self.current_directory)
 
+        # 重置搜索
+        self.search_keyword = ""
+        self.search_var.set("")
+        self.filtered_videos = self.videos.copy()
+
         # 计算总页数
-        self.total_pages = (len(self.videos) + self.page_size - 1) // self.page_size if self.videos else 0
+        self.total_pages = (len(self.filtered_videos) + self.page_size - 1) // self.page_size if self.filtered_videos else 0
         self.current_page = 1
 
         # 更新状态
@@ -523,10 +557,15 @@ class BilibiliCacheManager(tk.Tk):
         self.video_cards.clear()
 
         # 如果没有找到视频
-        if not self.videos:
+        if not self.filtered_videos:
+            if self.search_keyword:
+                msg = f"未找到包含 \"{self.search_keyword}\" 的视频"
+            else:
+                msg = "未找到缓存视频\n请确认目录是否正确"
+
             no_video_label = ttk.Label(
                 self.video_list_frame,
-                text="未找到缓存视频\n请确认目录是否正确",
+                text=msg,
                 foreground="gray",
                 font=("Arial", 12)
             )
@@ -536,10 +575,10 @@ class BilibiliCacheManager(tk.Tk):
 
         # 计算当前页的视频范围
         start_idx = (self.current_page - 1) * self.page_size
-        end_idx = min(start_idx + self.page_size, len(self.videos))
+        end_idx = min(start_idx + self.page_size, len(self.filtered_videos))
 
         # 创建当前页的视频卡片
-        for video in self.videos[start_idx:end_idx]:
+        for video in self.filtered_videos[start_idx:end_idx]:
             card = VideoCard(
                 self.video_list_frame,
                 video,
@@ -565,8 +604,12 @@ class BilibiliCacheManager(tk.Tk):
 
         # 更新页码信息
         start_idx = (self.current_page - 1) * self.page_size + 1
-        end_idx = min(self.current_page * self.page_size, len(self.videos))
-        self.page_info_label["text"] = f"第 {self.current_page}/{self.total_pages} 页 (显示 {start_idx}-{end_idx}，共 {len(self.videos)} 个)"
+        end_idx = min(self.current_page * self.page_size, len(self.filtered_videos))
+
+        if self.search_keyword:
+            self.page_info_label["text"] = f"第 {self.current_page}/{self.total_pages} 页 (显示 {start_idx}-{end_idx}，搜索结果 {len(self.filtered_videos)} 个)"
+        else:
+            self.page_info_label["text"] = f"第 {self.current_page}/{self.total_pages} 页 (显示 {start_idx}-{end_idx}，共 {len(self.filtered_videos)} 个)"
 
         # 更新按钮状态
         self.first_page_btn["state"] = "normal" if self.current_page > 1 else "disabled"
@@ -577,6 +620,65 @@ class BilibiliCacheManager(tk.Tk):
         # 更新页码输入框
         self.page_entry.delete(0, tk.END)
         self.page_entry.insert(0, str(self.current_page))
+
+    def _search_videos(self):
+        """搜索视频"""
+        if not self.videos:
+            messagebox.showwarning("提示", "请先扫描视频")
+            return
+
+        keyword = self.search_var.get().strip()
+
+        if not keyword:
+            messagebox.showwarning("提示", "请输入搜索关键词")
+            return
+
+        # 保存搜索关键词
+        self.search_keyword = keyword
+
+        # 搜索过滤（不区分大小写）
+        keyword_lower = keyword.lower()
+        self.filtered_videos = [
+            video for video in self.videos
+            if keyword_lower in video.title.lower() or
+               keyword_lower in video.owner_name.lower() or
+               keyword_lower in video.bvid.lower()
+        ]
+
+        # 重新计算分页
+        self.total_pages = (len(self.filtered_videos) + self.page_size - 1) // self.page_size if self.filtered_videos else 0
+        self.current_page = 1
+
+        # 更新状态
+        if self.filtered_videos:
+            self.status_label["text"] = f"找到 {len(self.filtered_videos)} 个匹配的视频 (关键词: \"{keyword}\")"
+        else:
+            self.status_label["text"] = f"未找到匹配的视频 (关键词: \"{keyword}\")"
+
+        # 显示结果
+        self._display_current_page()
+
+    def _clear_search(self):
+        """清除搜索"""
+        if not self.videos:
+            return
+
+        # 清空搜索框
+        self.search_var.set("")
+        self.search_keyword = ""
+
+        # 恢复全部视频
+        self.filtered_videos = self.videos.copy()
+
+        # 重新计算分页
+        self.total_pages = (len(self.filtered_videos) + self.page_size - 1) // self.page_size if self.filtered_videos else 0
+        self.current_page = 1
+
+        # 更新状态
+        self.status_label["text"] = f"找到 {len(self.videos)} 个缓存视频"
+
+        # 显示结果
+        self._display_current_page()
 
     def _first_page(self):
         """跳转到首页"""

@@ -1,0 +1,17 @@
+# B站缓存视频管理工具 - Python依赖
+
+# 注意：本项目主要使用Python标准库，无需安装额外依赖
+
+# Python 3.7+ 标准库（无需安装）：
+# - tkinter (GUI)
+# - json (JSON解析)
+# - pathlib (路径操作)
+# - subprocess (进程管理)
+# - urllib (网络请求)
+# - zipfile (压缩文件处理)
+
+# 外部依赖（需手动安装）：
+# - FFmpeg: 用于音视频合并
+#   Windows: 程序自动下载
+#   macOS: brew install ffmpeg
+#   Linux: sudo apt install ffmpeg
